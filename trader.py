@@ -65,11 +65,16 @@ class TwoPointTerry(Trader):
 
 class TittyToucher(Trader):
     _last_avg = None
-
-    def __init__(smoothness):
+    _last_point = None
+    _avvikelse = None
+    
+    def __init__(smoothness, avvikelse):
         self._smoothness = smoothness
-
+        self._avvikelse = avvikelse
+          
     def _process(self, klines, screen):
+        if self._last_point == None: # First-time setup
+            self._last_point = klines[-1]
         if len(klines) >= self._smoothness:
             avg = 0
             for i in range(1,self._smoothness+1):
@@ -78,3 +83,12 @@ class TittyToucher(Trader):
             avg = avg / self._smoothness
 
             self._last_avg = avg
+            
+        if (100/(avg/self._last_point))>self._avvikelse
+            self._set_state("HIGHPOINT_FOUND")
+            
+        if (100/(avg/self._last_point))<self._avvikelse
+            self._set_state("LOWPOINT_FOUND")
+        
+        
+            
