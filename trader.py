@@ -62,3 +62,19 @@ class TwoPointTerry(Trader):
 
             print(self.get_state()[0]+"\t"+str(self._downward_counter)+"\t"+str(self._upward_counter))
             self._last_point = klines[-1]
+
+class TittyToucher(Trader):
+    _last_avg = None
+
+    def __init__(smoothness):
+        self._smoothness = smoothness
+
+    def _process(self, klines, screen):
+        if len(klines) >= self._smoothness:
+            avg = 0
+            for i in range(1,self._smoothness+1):
+                avg += klines[-i]
+
+            avg = avg / self._smoothness
+
+            self._last_avg = avg
