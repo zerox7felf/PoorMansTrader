@@ -19,6 +19,12 @@ api_fp.close()
 width = 1024
 height = 800
 
+SHOW_HIGHPOINTS = False
+SHOW_LOWPOINTS = False
+SHOW_BUYPOINTS = True
+SHOW_SELLPOINTS = True
+smoothness = 32
+
 ### HELPER FUNCTIONS ###
 
 def get_kline(kline):
@@ -51,12 +57,15 @@ font = pygame.font.Font(None, 15)
 client = Client(api_keys["api_key"], api_keys["api_secret"])
 print("Getting klines...")
 symbol = "BTCUSDT"
-full_klines = client.get_historical_klines(symbol, Client.KLINE_INTERVAL_1MINUTE, "4 hours ago UTC")
+full_klines = client.get_historical_klines(symbol, Client.KLINE_INTERVAL_1MINUTE, "6 hours ago UTC")
+processed_klines = []
+for kline in full_klines:
+    processed_klines.append(get_kline(kline))
 print("Done")
 
 print("Generating averages...")
 smoothed_klines = []
-smoothness = 3
+#smoothness = 16 # Moved to constants
 for i in range(smoothness, len(full_klines)):
     #avg_value = (get_kline(full_klines[i])["middle"] + get_kline(full_klines[i-1])["middle"] + get_kline(full_klines[i-2])["middle"])/3
 
@@ -75,6 +84,10 @@ leftmost_val = 0
 rightmost_val = len(full_klines)
 
 trade_algo = trader.TwoPointTerry()
+trade_algo2 = trader.TittyToucher(smoothness) # 16 seems to work ok
+trade_algo2_avgs = []
+trade_below_avg_positions = []
+trade_above_avg_positions = []
 trade_pos = 0
 trade_bought_positions = []
 trade_sold_positions = []
@@ -126,43 +139,83 @@ while True:
         )
         last_val = smoothed_klines[x]["middle"]
 
-    #for bought_position in trade_bought_positions:
-        #pygame.draw.line(
-            #screen, (00,255,0),
-            #(int(bought_position*width/len(klines)), 0),
-            #(int(bought_position*width/len(klines)), height),
-            #1
-        #)
-
-    #for sold_position in trade_sold_positions:
-        #pygame.draw.line(
-            #screen, (255,0,0),
-            #(int(sold_position*width/len(klines)), 0),
-            #(int(sold_position*width/len(klines)), height),
-            #1
-        #)
-
-    for highpoint_position in trade_highpoint_positions:
+    x = 0
+    last_val = 0
+    for y in trade_algo2_avgs:
         pygame.draw.line(
-            screen, (255,255,0),
-            (int((highpoint_position-leftmost_val+smoothness)*width/len(klines)), 0),
-            (int((highpoint_position-leftmost_val+smoothness)*width/len(klines)), height),
-            1
+            screen, (150,150,150),
+            (
+                int((x-leftmost_val-1)*width/len(klines)),
+                int(height - (last_val - floor_val) * (height / (ceil_val - floor_val)))
+            ),
+            (
+                int((x-leftmost_val)*width/len(klines)),
+                int(height - (y - floor_val) * (height / (ceil_val - floor_val)))
+            ),
+            2
         )
+        last_val = y
+        x+=1
 
-    for lowpoint_position in trade_lowpoint_positions:
-        pygame.draw.line(
-            screen, (0,0,255),
-            (int((lowpoint_position-leftmost_val+smoothness)*width/len(klines)), 0),
-            (int((lowpoint_position-leftmost_val+smoothness)*width/len(klines)), height),
-            1
-        )
+    if SHOW_BUYPOINTS:
+        for bought_position in trade_bought_positions:
+            pygame.draw.line(
+                screen, (00,255,0),
+                (int((bought_position-leftmost_val)*width/len(klines)), 0),
+                (int((bought_position-leftmost_val)*width/len(klines)), height),
+                1
+            )
+
+    if SHOW_SELLPOINTS:
+        for sold_position in trade_sold_positions:
+            pygame.draw.line(
+                screen, (255,0,0),
+                (int((sold_position-leftmost_val)*width/len(klines)), 0),
+                (int((sold_position-leftmost_val)*width/len(klines)), height),
+                1
+            )
+
+    if SHOW_HIGHPOINTS:
+        for highpoint_position in trade_highpoint_positions:
+            pygame.draw.line(
+                screen, (255,255,0),
+                (int((highpoint_position-leftmost_val)*width/len(klines)), 0),
+                (int((highpoint_position-leftmost_val)*width/len(klines)), height),
+                1
+            )
+
+    if SHOW_LOWPOINTS:
+        for lowpoint_position in trade_lowpoint_positions:
+            pygame.draw.line(
+                screen, (0,0,255),
+                (int((lowpoint_position-leftmost_val)*width/len(klines)), 0),
+                (int((lowpoint_position-leftmost_val)*width/len(klines)), height),
+                1
+            )
 
     for slope_position in trade_downward_slope_positions:
         screen.fill(
             (255,0,0),
             (
-                int((slope_position-leftmost_val+smoothness)*width/len(klines)), height-5,
+                int((slope_position-leftmost_val)*width/len(klines)), height-5,
+                int(width/len(klines))-1, 5
+            )
+        )
+
+    for above_position in trade_above_avg_positions:
+        screen.fill(
+            (0,255,0),
+            (
+                int((above_position-leftmost_val)*width/len(klines)), height-10,
+                int(width/len(klines))-1, 5
+            )
+        )
+
+    for below_position in trade_below_avg_positions:
+        screen.fill(
+            (0,0,255),
+            (
+                int((below_position-leftmost_val)*width/len(klines)), height-10,
                 int(width/len(klines))-1, 5
             )
         )
@@ -171,7 +224,7 @@ while True:
         screen.fill(
             (0,255,0),
             (
-                int((slope_position-leftmost_val+smoothness)*width/len(klines)), height-5,
+                int((slope_position-leftmost_val)*width/len(klines)), height-5,
                 int(width/len(klines))-1, 5
             )
         )
@@ -232,21 +285,32 @@ while True:
             floor_val = ceil_val - 1
 
     ### PRICES ###
-    if trade_pos < len(smoothed_klines):
-        trade_algo.process([smoothed_klines[trade_pos]])
+    if trade_pos < len(full_klines):
+        trade_algo.process(processed_klines[:trade_pos+1])
+        trade_algo2_avgs.append(trade_algo2.process(processed_klines[:trade_pos+1]))
         state = trade_algo.get_state()
-        if state[0] == "BOUGHT" and state[1]:
-            trade_bought_positions.append(trade_pos+smoothness)
-        elif state[0] == "SOLD_OFF" and state[1]:
-            trade_sold_positions.append(trade_pos+smoothness)
-        elif state[0] == "HIGHPOINT_FOUND" and state[1]:
-            trade_highpoint_positions.append(trade_pos+smoothness)
+        state2 = trade_algo2.get_state()
+
+        if state[0] == "HIGHPOINT_FOUND" and state[1]:
+            if state2[0] == "ABOVE_AVG" and len(trade_bought_positions) > len(trade_sold_positions):
+                trade_sold_positions.append(trade_pos)
+            else:
+                trade_highpoint_positions.append(trade_pos)
         elif state[0] == "LOWPOINT_FOUND" and state[1]:
-            trade_lowpoint_positions.append(trade_pos+smoothness)
+            if state2[0] == "BELOW_AVG" and len(trade_sold_positions) == len(trade_bought_positions):
+                trade_bought_positions.append(trade_pos)
+            else:
+                trade_lowpoint_positions.append(trade_pos)
         elif state[0] == "UPWARD_SLOPE":
-            trade_upward_slope_positions.append(trade_pos+smoothness)
+            trade_upward_slope_positions.append(trade_pos)
         elif state[0] == "DOWNWARD_SLOPE":
-            trade_downward_slope_positions.append(trade_pos+smoothness)
+            trade_downward_slope_positions.append(trade_pos)
+
+        if state2[0] == "ABOVE_AVG":
+            trade_above_avg_positions.append(trade_pos)
+        elif state2[0] == "BELOW_AVG":
+            trade_below_avg_positions.append(trade_pos)
+
         trade_pos+=1
 
     elif not trade_done:
